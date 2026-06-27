@@ -1,0 +1,51 @@
+{
+  "permissions": {
+    "allow": [
+      "Edit(//home/logus/env/assets/agent_bus/**)",
+      "Write(//home/logus/env/assets/agent_bus/**)",
+      "Read(//home/logus/env/assets/agent_bus/**)",
+
+      "Bash(curl:*)",
+      "Bash(echo:*)",
+      "Bash(cat:*)",
+      "Bash(ls:*)",
+      "Bash(pwd:*)",
+      "Bash(grep:*)",
+      "Bash(rg:*)",
+      "Bash(sed:*)",
+      "Bash(awk:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(find:*)",
+      "Bash(wc:*)",
+      "Bash(sort:*)",
+      "Bash(uniq:*)",
+      "Bash(cut:*)",
+      "Bash(tr:*)",
+      "Bash(diff:*)",
+      "Bash(tree:*)",
+      "Bash(which:*)",
+      "Bash(file:*)",
+      "Bash(stat:*)",
+      "Bash(jq:*)",
+      "Bash(mkdir:*)",
+      "Bash(touch:*)",
+
+      "Bash(valkey-cli:*)",
+      "Bash(redis-cli:*)",
+      "Bash(pytest:*)",
+      "Bash(python:*)",
+      "Bash(python3:*)",
+      "Bash(pip:*)",
+      "Bash(uvicorn:*)",
+      "Bash(.venv/bin/python:*)",
+      "Bash(.venv/bin/pip:*)",
+      "Bash(.venv/bin/pytest:*)",
+      "Bash(.venv/bin/uvicorn:*)",
+      "Bash(.venv_agent_bus/bin/python:*)",
+      "Bash(.venv_agent_bus/bin/pip:*)",
+      "Bash(.venv_agent_bus/bin/pytest:*)",
+      "Bash(.venv_agent_bus/bin/uvicorn:*)"
+    ]
+  }
+}

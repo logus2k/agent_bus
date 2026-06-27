@@ -4,20 +4,49 @@ services:
     container_name: valkey-bus
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      # Bound to localhost only; external access goes through the corporate nginx.
+      - "127.0.0.1:6379:6379"
     command: >
-      valkey-server 
-      --appendonly yes 
-      --appendfsync everysec 
+      valkey-server
+      --appendonly yes
+      --appendfsync everysec
       --protected-mode no
     volumes:
       - valkey_data:/data
+    networks:
+      - logus2k_network
     healthcheck:
       # Ensures the bus is fully initialized before agents start
       test: ["CMD", "valkey-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  agent-bus-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: agent_bus:1.0
+    container_name: agent-bus-app
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Override the .env default so the app reaches Valkey by its service name on the network.
+      VALKEY_HOST: valkey-bus
+      # Optional runaway cap, overridable at launch (e.g. MAX_THRESHOLD=8 docker compose up).
+      # 0 = unlimited (default); workflows then end explicitly or naturally.
+      MAX_THRESHOLD: ${MAX_THRESHOLD:-0}
+      # Echo demo: ECHO_LOOP=true makes the echo actors ping-pong forever.
+      ECHO_LOOP: ${ECHO_LOOP:-false}
+    ports:
+      # Socket.IO gateway, localhost-bound (nginx fronts external access).
+      - "127.0.0.1:6815:6815"
+    depends_on:
+      valkey-bus:
+        condition: service_healthy
+    networks:
+      - logus2k_network
 
 volumes:
   valkey_data:

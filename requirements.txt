@@ -1,0 +1,12 @@
+# Agent Bus — runtime dependencies (Python 3.12)
+# Pinned for reproducibility between host venv and container.
+
+valkey-glide==2.4.2      # async Valkey client (Rust core, glibc only — see Dockerfile)
+pydantic==2.13.4         # EventEnvelope contract
+python-socketio==5.16.3  # real-time gateway (ASGI)
+uvicorn==0.49.0          # ASGI server for the gateway
+python-dotenv==1.2.2     # .env loading for local/dev
+
+# dev/test
+pytest==9.1.1
+pytest-asyncio==1.4.0

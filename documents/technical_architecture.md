@@ -61,11 +61,13 @@ All events transmitted via the bus adhere to this JSON schema (modeled with Pyda
 
 ## 4. Discovery & Choreography
 
-Because initiator streams are created dynamically, actors cannot statically subscribe to a fixed list. Discovery uses a **well-known control stream** for the one-time rendezvous:
+Because initiator streams are created dynamically, actors cannot statically subscribe to a fixed list. The **first-slice mechanism is a polled registry Set** (`streams:active`); an event-driven control stream is the documented evolution (see note below):
 
-1. **Announce:** the initiator picks `stream_id`, `XADD`s the opening event to the well-known `stream:control` carrying that `stream_id`, and registers it (`SADD streams:active <stream_id>`).
-2. **Attach:** every actor type tails `stream:control`; on seeing a new `stream_id` it creates its consumer group on `stream:<stream_id>` (`XGROUP CREATE … MKSTREAM`) and begins `XREADGROUP`.
-3. **Run:** from then on, all workflow traffic for that initiator flows on its dedicated stream.
+1. **Register:** the initiator picks `stream_id`, registers it (`SADD streams:active <stream_id>`), and `XADD`s its opening event directly onto its dedicated stream `stream:<stream_id>`.
+2. **Attach:** each actor type polls `streams:active` and, for any stream it hasn't attached to yet, creates its consumer group **at id `0`** (`XGROUP CREATE … 0 MKSTREAM`). Creating at `0` means events appended *before* the group existed are still delivered, so there is no attach/publish race.
+3. **Run:** each cycle the actor issues one `XREADGROUP` across all its attached streams (non-blocking `>`), handles new entries, and acks.
+
+> **Why polled, not blocking/event-driven (yet):** glide uses a single multiplexed connection, so a blocking `XREADGROUP` would stall other commands, and the set of streams changes as clients connect. Non-blocking reads with a per-cycle rebuild of the stream set sidestep both. An event-driven `stream:control` (tail-to-attach, no polling, per-consumer blocking connections) is the optimization once volume warrants it — the envelope and registry don't change when we switch.
 
 ### Consumer Groups
 
@@ -77,15 +79,23 @@ Because initiator streams are created dynamically, actors cannot statically subs
 
 ## 5. Lifecycle Management
 
-### Workflow termination (per `cid`) — a shared agreement
+### Workflow termination (per `cid`)
 
-Termination is not an orchestrator command. Before processing any event, every actor runs a **Termination Guard**:
+There is **no automatic step cap by default**. A workflow runs until it ends in one of two ways:
 
-* **Check:** read `state[cid].status` in Valkey.
-* **Evaluate:** if `sid >= MAX_THRESHOLD`, set `status = TERMINATED` and emit `workflow.terminated`.
-* **React:** if `status == TERMINATED`, drop the event immediately.
+* **Explicit:** an actor decides it's done and emits `workflow.terminated`, or a client sends the `terminate` command (the gateway emits the terminal event). This flips `state[cid].status = TERMINATED`.
+* **Natural:** the reaction-chain simply goes quiet — no actor reacts to the last event, so nothing more is emitted.
 
-A terminated workflow is a **state flip only** — the initiator's stream stays alive for its other/future workflows. `MAX_THRESHOLD` is env-configurable (default **50**).
+Before processing any event, every actor still runs a **Termination Guard**:
+
+* **Check:** read `state[cid].status`. If `TERMINATED`, drop the event immediately.
+* **Backstop (optional):** if `MAX_THRESHOLD > 0` and `sid >= MAX_THRESHOLD`, the first crosser is atomically elected (SET NX), flips status, and emits `workflow.terminated`. `MAX_THRESHOLD` defaults to **0 = unlimited**; set it positive only as a runaway guard.
+
+A terminated workflow is a **state flip only** — the initiator's stream stays alive for its other/future workflows.
+
+### Outlier governance (instead of a hard cap)
+
+Because workflows can run unbounded, runaway detection is **observability-driven, not a blanket ceiling**. The live step count `sid` is carried in every event header and mirrored to clients, so an operator or a client can watch iterations climb and **eliminate an outlier** with the `terminate` command (or query a snapshot with `status`). Automating this — a **Monitor** actor that watches `sid` rates and terminates outliers by policy — is the natural next actor to add.
 
 ### Stream cleanup (per initiator)
 
