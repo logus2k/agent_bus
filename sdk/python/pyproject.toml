@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-bus-client"
+version = "0.1.0"
+description = "Python client SDK for the Agent Bus Socket.IO gateway"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "python-socketio[asyncio_client]>=5.11",
+    "aiohttp>=3.9",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["agent_bus_client*"]

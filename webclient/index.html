@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agent Bus — Console</title>
+    <link rel="stylesheet" href="static/styles.css" />
+    <!-- Apply the saved theme before paint to avoid a flash (light is default). -->
+    <script>
+      document.documentElement.dataset.theme =
+        localStorage.getItem("agentbus-theme") || "light";
+    </script>
+    <!-- Bare imports resolved here: socket.io from CDN ESM, the SDK served by the gateway.
+         Relative URLs so the app works at "/" (dev) and under a "/bus/" prefix (proxy). -->
+    <script type="importmap">
+      {
+        "imports": {
+          "socket.io-client": "https://cdn.socket.io/4.7.5/socket.io.esm.min.js",
+          "agent-bus-client": "./sdk/agent-bus-client.js"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <header>
+      <h1>Agent&nbsp;Bus <span class="sub">session console</span></h1>
+      <div class="conn">
+        <span id="dot" class="dot off"></span>
+        <span id="conn-text">connecting…</span>
+        <span id="stream" class="muted"></span>
+      </div>
+      <div class="summary">
+        <span class="chip">active <b id="n-active">0</b></span>
+        <span class="chip warn">runaway <b id="n-runaway">0</b></span>
+        <span class="chip stall">stalled <b id="n-stalled">0</b></span>
+        <button id="theme" class="theme-toggle" title="Toggle light/dark theme">🌙 dark</button>
+      </div>
+    </header>
+
+    <section class="controls">
+      <input id="text" type="text" placeholder="workflow input (e.g. summarize the onboarding doc)" />
+      <label class="budget">
+        step budget
+        <input id="budget" type="number" min="0" value="20" title="0 = no budget; flag as runaway when sid exceeds this" />
+      </label>
+      <button id="start">Start workflow</button>
+      <button id="clear" class="ghost">Clear finished</button>
+    </section>
+
+    <main id="board"></main>
+
+    <script type="module" src="static/app.js"></script>
+  </body>
+</html>

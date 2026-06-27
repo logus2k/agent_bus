@@ -50,8 +50,20 @@ class Gateway:
         self._sio = socketio.AsyncServer(
             async_mode="asgi", cors_allowed_origins="*"
         )
-        self.asgi = socketio.ASGIApp(self._sio)
+        self.asgi = socketio.ASGIApp(self._sio, static_files=self._static_files())
         self._register_handlers()
+
+    def _static_files(self):
+        """Serve the web-client dashboard (and the JS SDK it imports) when
+        WEBCLIENT_DIR is configured; returns None to disable static serving."""
+        static: dict[str, str] = {}
+        if self._settings.webclient_dir:
+            d = self._settings.webclient_dir
+            static["/"] = f"{d}/index.html"
+            static["/static"] = d
+        if self._settings.sdk_dir:
+            static["/sdk"] = self._settings.sdk_dir
+        return static or None
 
     def _register_handlers(self) -> None:
         sio = self._sio

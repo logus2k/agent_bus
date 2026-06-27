@@ -66,6 +66,10 @@ class Settings:
     gateway_host: str = _str("GATEWAY_HOST", "0.0.0.0")
     gateway_port: int = _int("GATEWAY_PORT", 6815)
 
+    # --- Web client (static dashboard served by the gateway; empty = disabled) ---
+    webclient_dir: str = _str("WEBCLIENT_DIR", "")
+    sdk_dir: str = _str("SDK_DIR", "")
+
     # --- Logging ---
     log_level: str = _str("LOG_LEVEL", "INFO")
 

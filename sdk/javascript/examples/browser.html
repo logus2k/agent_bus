@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Agent Bus — browser SDK demo</title>
+    <!-- Map the bare import to socket.io's ESM CDN build (no bundler needed). -->
+    <script type="importmap">
+      {
+        "imports": {
+          "socket.io-client": "https://cdn.socket.io/4.7.5/socket.io.esm.min.js"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <h1>Agent Bus</h1>
+    <button id="go">Start workflow</button>
+    <pre id="log"></pre>
+
+    <script type="module">
+      import { AgentBusClient } from "../src/agent-bus-client.js";
+
+      const log = (line) => (document.getElementById("log").textContent += line + "\n");
+      const client = new AgentBusClient("http://127.0.0.1:6815");
+      await client.connect();
+      log("connected, stream: " + client.streamId);
+
+      document.getElementById("go").onclick = async () => {
+        const wf = await client.start("summarize the onboarding doc");
+        log("workflow: " + wf.cid);
+        for await (const ev of wf) {
+          log(`  sid=${ev.sid}  ${ev.type}  ${JSON.stringify(ev.data)}`);
+        }
+        log("done after " + wf.sid + " steps");
+      };
+    </script>
+  </body>
+</html>

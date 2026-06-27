@@ -33,6 +33,9 @@
 
       "Bash(valkey-cli:*)",
       "Bash(redis-cli:*)",
+      "Bash(node:*)",
+      "Bash(npm:*)",
+      "Bash(npx:*)",
       "Bash(pytest:*)",
       "Bash(python:*)",
       "Bash(python3:*)",

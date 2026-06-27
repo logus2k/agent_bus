@@ -11,6 +11,15 @@ your messages into bus events and streams the resulting events back to you
 workflows you start on it are multiplexed and told apart by a correlation id
 (`cid`).
 
+> **Prefer the SDKs over raw wire.** Ready-made high-level clients wrap
+> everything below — connection, cid-correlation, async-iterable workflows, the
+> `terminate`/`status` helpers, and the live iteration count:
+> - **Python:** [`sdk/python/`](../sdk/python/) — `pip install -e sdk/python`
+> - **JavaScript (ES6, browser + Node):** [`sdk/javascript/`](../sdk/javascript/)
+>
+> Read the wire reference below to understand the protocol; reach for the SDK
+> when building a real client.
+
 > Scope: this describes the bus's **first slice** (echo actors, no LLM yet).
 > The wire contract below is stable; new event *types* will appear as real
 > agents/tools land, but the envelope shape, the connection lifecycle, and the

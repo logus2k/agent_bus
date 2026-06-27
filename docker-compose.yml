@@ -39,9 +39,16 @@ services:
       MAX_THRESHOLD: ${MAX_THRESHOLD:-0}
       # Echo demo: ECHO_LOOP=true makes the echo actors ping-pong forever.
       ECHO_LOOP: ${ECHO_LOOP:-false}
+      # Web-client dashboard served by the gateway (bind-mounted below).
+      WEBCLIENT_DIR: /app/webclient
+      SDK_DIR: /app/sdk
     ports:
       # Socket.IO gateway, localhost-bound (nginx fronts external access).
       - "127.0.0.1:6815:6815"
+    volumes:
+      # Dev: serve the dashboard + JS SDK live (edit without rebuild).
+      - ./webclient:/app/webclient:ro
+      - ./sdk/javascript/src:/app/sdk:ro
     depends_on:
       valkey-bus:
         condition: service_healthy

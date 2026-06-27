@@ -57,6 +57,15 @@ The gateway listens on `127.0.0.1:6815` (Socket.IO). Connect, emit a
 `request` event `{"text": "..."}`, and receive the workflow's events streamed
 back as `event` frames until `workflow.terminated`.
 
+### Web console
+
+The gateway also serves a **session console** dashboard at
+`http://127.0.0.1:6815/` — start workflows, watch each one's live event trace
+and **iteration counter**, and terminate stalled/runaway workflows (set a step
+budget to flag ones exceeding it). It's a vanilla ES6 app on the JS SDK
+([webclient/](webclient/)), scoped to the workflows this browser starts.
+Try it with the echo loop on: `ECHO_LOOP=true docker compose up -d agent-bus-app`.
+
 ## Test
 
 ```bash

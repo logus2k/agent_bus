@@ -1,0 +1,20 @@
+{
+  "name": "agent-bus-client",
+  "version": "0.1.0",
+  "description": "JavaScript (ES6) client SDK for the Agent Bus Socket.IO gateway",
+  "type": "module",
+  "main": "src/agent-bus-client.js",
+  "exports": {
+    ".": "./src/agent-bus-client.js"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "example": "node examples/node-basic.mjs"
+  },
+  "dependencies": {
+    "socket.io-client": "^4.8.3"
+  },
+  "license": "MIT"
+}
