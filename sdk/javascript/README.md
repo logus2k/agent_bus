@@ -49,9 +49,21 @@ client.disconnect();
 ### `new AgentBusClient(url, options?)`
 - `await connect(timeout=10000)` / `disconnect()`.
 - `await start(text, { idleTimeout=null }) -> Workflow`.
+- `await publish(streamId, eventType, data={}, { cid }={})` — publish to **any** stream.
+- `await subscribe(streamId) -> Subscription` / `await unsubscribe(streamId)` —
+  observe **any** stream (events you didn't produce).
 - `streamId` — this connection's dedicated stream id.
 - Low-level (by `cid`): `await request(text) -> cid`, `await status(cid)`,
   `await terminate(cid)`. `options` pass through to `io(url, options)`.
+
+### `Subscription`
+- **async-iterable** — `for await (const ev of sub)` yields **every** event on the
+  stream until `await sub.unsubscribe()` or disconnect. Observer semantics (every
+  subscriber sees every event); not consumer-group work distribution.
+
+> The browser/JS SDK is gateway-only (publish + observe). Consumer-group consumption
+> (ack, at-least-once, work distribution) is server-side — use the Python
+> `BusClient` (`agent_bus_client.bus`).
 
 ### `Workflow`
 - **async-iterable** — `for await (const ev of wf)` yields this workflow's

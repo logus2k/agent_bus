@@ -11,7 +11,8 @@
     "src"
   ],
   "scripts": {
-    "example": "node examples/node-basic.mjs"
+    "example": "node examples/node-basic.mjs",
+    "test": "node test/gateway-pubsub.test.mjs"
   },
   "dependencies": {
     "socket.io-client": "^4.8.3"

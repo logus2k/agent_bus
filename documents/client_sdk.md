@@ -50,12 +50,21 @@ browser build will **not** connect to this v5 server.
 
 | Event | Payload | Ack (callback) | Effect |
 |---|---|---|---|
-| `request` | `{ "text": "<your input>" }` | `{ "cid": "<uuid>" }` | Starts a new workflow on your stream. The ack's `cid` is the correlation id for every event that workflow produces. |
-| `terminate` | `{ "cid": "<uuid>" }` | `{ "ok": true, "cid": "..." }` | **Eliminates** a workflow: flips it to TERMINATED and emits a final `workflow.terminated`. Use it to kill a runaway/outlier you've detected. |
-| `status` | `{ "cid": "<uuid>" }` | `{ "ok": true, "cid": "...", "sid": <n>, "status": "RUNNING"\|"TERMINATED" }` | Snapshot of a workflow's **live iteration count** (`sid`) and state — for outlier detection without consuming the whole stream. |
+| `request` | `{ "text": "<your input>" }` | `{ "cid": "<uuid>" }` | Starts a workflow on **your own** stream (initiator convenience). The ack's `cid` correlates every event that workflow produces. |
+| `publish` | `{ "stream_id", "event_type", "data"?, "cid"? }` | `{ "ok", "cid", "sid", "entry_id" }` | **Publish** an arbitrary event to **any** stream (general producer). |
+| `subscribe` | `{ "stream_id" }` | `{ "ok", "stream_id" }` | **Subscribe** to any stream — the gateway then `event`-mirrors every envelope on it to you (including events you did not produce). |
+| `unsubscribe` | `{ "stream_id" }` | `{ "ok", "stream_id" }` | Stop a subscription. |
+| `terminate` | `{ "cid": "<uuid>" }` | `{ "ok": true, "cid": "..." }` | **Eliminates** a workflow: flips it to TERMINATED and emits a final `workflow.terminated`. |
+| `status` | `{ "cid": "<uuid>" }` | `{ "ok", "cid", "sid", "status" }` | Snapshot of a workflow's **live iteration count** (`sid`) and state. |
 
-> To **abandon** all in-flight work, simply disconnect — the gateway cancels
-> your observer and deletes your stream.
+> To **abandon** all in-flight work, simply disconnect — the gateway cancels your
+> observer + subscriptions and deletes your stream.
+
+**Two transports — pick by role.** This gateway surface (Socket.IO) gives **publish +
+subscribe** with *observer* semantics: every subscriber to a stream sees every event.
+That is **not** consumer-group work distribution (competing consumers, ack, at-least-once).
+For a server-side **worker** that needs those, use the glide **`BusClient`** (direct Valkey)
+— see §12. The browser SDK is observer-only by design.
 
 ### Server → Client
 
@@ -64,9 +73,9 @@ browser build will **not** connect to this v5 server.
 | `connected` | `{ "stream_id": "<your socket id>" }` | Once, right after connect. `stream_id` is your dedicated stream's id (equals your socket id). |
 | `event` | a full **event envelope** (see §3) | For every event appended to your stream, mirrored live — including your own `request` echoed back, the agents' `agent.thought`, tools' `tool.result`, and the final `workflow.terminated`. |
 
-You receive **all** events on your connection's stream. When you run more than
-one workflow on a single connection, filter by `header.cid` to separate them
-(see §6).
+You receive `event` frames for (a) your **own** stream and (b) **any stream you
+`subscribe`d to**. Each frame carries its source in `header.stream_id`, so the SDKs
+route it to the right `Workflow` (by `cid`) or `Subscription` (by `stream_id`).
 
 ---
 
@@ -365,17 +374,82 @@ accordingly if you mount under a sub-path).
 
 ---
 
-## 11. Quick reference
+## 11. Publish & subscribe (the SDKs)
+
+Both SDKs are publish **and** subscribe — not just initiate-and-watch-your-own.
+
+```python
+# Python — observe a stream you didn't start, and publish to any stream
+client = await AgentBusClient("http://127.0.0.1:6815").connect()
+sub = await client.subscribe("some-stream-id")     # -> Subscription (async-iterable)
+async for ev in sub:
+    print(ev.cid, ev.type, ev.data)                 # every event on that stream
+# from another client / elsewhere:
+await client.publish("some-stream-id", "feed.item", {"n": 1})
+await sub.unsubscribe()
+```
+
+```js
+// JavaScript (ES6) — identical shape
+const sub = await client.subscribe("some-stream-id");
+for await (const ev of sub) console.log(ev.cid, ev.type, ev.data);
+await client.publish("some-stream-id", "feed.item", { n: 1 });
+await sub.unsubscribe();
+```
+
+Semantics: **observer** — every subscriber to a stream sees every event. There is no
+work distribution or ack here; for that, see §12.
+
+---
+
+## 12. Server-side consumer — the glide `BusClient` (Python only)
+
+When a **service** needs real **consumer-group** semantics — competing consumers that
+load-balance a stream, `ack`, at-least-once redelivery, crash recovery — the Socket.IO
+gateway is the wrong tool (it has no group API). Use the glide **`BusClient`**, which
+talks to Valkey directly:
+
+```python
+from agent_bus_client.bus import BusClient, make_consumer   # pip install agent-bus-client[bus]
+
+bus = await BusClient.create("valkey-bus", 6379)
+group, consumer = "cg:my-service", make_consumer("my-service")   # consumer encodes host+pid
+await bus.ensure_group(stream, group, start="$")                  # idempotent (BUSYGROUP-safe)
+
+while True:
+    for d in await bus.read_group([stream], group, consumer, count=32, block_ms=2000):
+        handle(d.envelope)                  # d.envelope.header.cid + .sid = idempotency key
+        await bus.ack(d.stream, group, [d.entry_id])
+    # crash recovery: reclaim entries abandoned by dead consumers
+    _cursor, claimed = await bus.reclaim(stream, group, consumer, min_idle_ms=30000)
+```
+
+- **At-least-once** — a reclaimed entry is redelivered; dedupe in your handler on
+  `cid`+`sid`, not in the client.
+- **Poison routing** — unparseable entries go to `stream:dlq` and are acked, so one bad
+  message can't wedge the group.
+- **Same client, both directions** — `BusClient.publish(stream, envelope)` produces, too.
+- **glibc only** (`valkey-glide` has no musl/alpine wheels); server-side, not browser.
+- The canonical `EventEnvelope` is exported (`from agent_bus_client import EventEnvelope`,
+  `new_event`) — import it instead of vendoring a copy.
+
+| Need | Use |
+|---|---|
+| Browser / initiator; publish + observe a stream | `AgentBusClient` (Socket.IO gateway) |
+| Server worker; consume a shared stream with ack/at-least-once | `BusClient` (glide, direct Valkey) |
+
+---
+
+## 13. Quick reference
 
 ```
 connect            →  receive  connected { stream_id }
-emit  request {text}  →  ack    { cid }
-receive  event { header:{stream_id,cid,sid,timestamp,sender,event_type},
-                 payload:{data,context},
-                 metadata:{version,trace_parent} }
-end-of-workflow    →  event.header.event_type === "workflow.terminated"
-correlate          →  by header.cid          order → by header.sid
-finish/abandon     →  disconnect (stream is deleted)
+emit  request {text}  →  ack    { cid }              # start a workflow on your stream
+emit  publish {stream_id, event_type, data}          # publish to any stream
+emit  subscribe {stream_id}                          # observe any stream
+receive  event { header:{stream_id,cid,sid,...}, payload:{data,context}, metadata:{...} }
+route              →  by header.stream_id (Subscription) or header.cid (Workflow)
+worker (server)    →  BusClient: ensure_group / read_group / ack / reclaim  (§12)
 ```
 
 For the system design behind this contract, see

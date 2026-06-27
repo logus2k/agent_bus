@@ -4,13 +4,19 @@ Bidirectional and brain-free: it never runs agent logic, only translates
 between Socket.IO frames and Valkey stream entries, sharing the same envelope
 models as the actors.
 
-* **connect**     → the socket id becomes the initiator id (`stream_id`); the
-                    gateway registers it and starts an observer task.
-* **request**     → publishes a `request` envelope (new `cid`) onto the
-                    client's dedicated stream; actors take it from there.
-* **observer**    → `XREAD`s the dedicated stream (no consumer group) and
-                    `emit`s every envelope back to that one socket, live.
-* **disconnect**  → stops the observer and cleans up the stream.
+* **connect**       → the socket id becomes the initiator id (`stream_id`); the
+                      gateway registers it and observes the client's own stream.
+* **request**       → publishes a `request` envelope (new `cid`) onto the client's
+                      own stream (initiator convenience); actors take it from there.
+* **publish**       → publishes an arbitrary `event_type` to ANY stream (general producer).
+* **subscribe**     → `XREAD`s ANY stream (no consumer group) and `emit`s every
+                      envelope back to the socket — receive events you didn't produce.
+* **unsubscribe**   → stops a subscription's observer.
+* **terminate/status** → outlier kill switch / live iteration snapshot.
+* **disconnect**    → stops all observers and cleans up the client's stream.
+
+Delivery is read-only observer semantics (every subscriber sees every event); this
+is NOT consumer-group work distribution (that is a server-side actor concern).
 """
 
 from __future__ import annotations
@@ -46,6 +52,8 @@ class Gateway:
         self._cleaner = cleaner
         self._settings = settings
         self._observers: dict[str, asyncio.Task] = {}
+        # (sid, stream_id) -> observer task for an explicit subscription.
+        self._subscriptions: dict[tuple[str, str], asyncio.Task] = {}
 
         self._sio = socketio.AsyncServer(
             async_mode="asgi", cors_allowed_origins="*"
@@ -72,7 +80,8 @@ class Gateway:
         async def connect(sid, environ, auth=None):  # noqa: ANN001
             await self._discovery.register(sid)
             await self._cleaner.touch(sid)
-            self._observers[sid] = asyncio.create_task(self._observe(sid))
+            # Observe the client's own stream (so it sees its own workflows).
+            self._observers[sid] = asyncio.create_task(self._observe_stream(sid, sid))
             await sio.emit("connected", {"stream_id": sid}, to=sid)
             log.info("client connected: %s", sid)
 
@@ -128,16 +137,64 @@ class Gateway:
             }
 
         @sio.event
+        async def publish(sid, data):  # noqa: ANN001
+            """Publish an event to ANY stream (general producer).
+            data: {stream_id, event_type, data?, cid?}. Returns {cid, sid, entry_id}."""
+            if not isinstance(data, dict):
+                return {"ok": False, "error": "object payload required"}
+            stream_id = data.get("stream_id")
+            event_type = data.get("event_type")
+            if not stream_id or not event_type:
+                return {"ok": False, "error": "stream_id and event_type required"}
+            cid = data.get("cid") or str(uuid.uuid4())
+            seq = await self._registry.next_sid(cid)
+            env = new_event(stream_id=stream_id, cid=cid, sid=seq, sender=sid,
+                            event_type=event_type, data=data.get("data") or {})
+            # Register the stream so actors/observers/reaper see it, then publish.
+            await self._discovery.register(stream_id)
+            entry_id = await self._bus.publish(self._settings.stream_key(stream_id), env)
+            await self._cleaner.touch(stream_id)
+            return {"ok": True, "cid": cid, "sid": seq, "entry_id": entry_id}
+
+        @sio.event
+        async def subscribe(sid, data):  # noqa: ANN001
+            """Observe ANY stream — receive every event published to it (read-only,
+            you did not have to produce them). data: {stream_id}."""
+            stream_id = (data or {}).get("stream_id") if isinstance(data, dict) else None
+            if not stream_id:
+                return {"ok": False, "error": "stream_id required"}
+            key = (sid, stream_id)
+            if key not in self._subscriptions:
+                self._subscriptions[key] = asyncio.create_task(
+                    self._observe_stream(sid, stream_id)
+                )
+                log.info("client %s subscribed to %s", sid, stream_id)
+            return {"ok": True, "stream_id": stream_id}
+
+        @sio.event
+        async def unsubscribe(sid, data):  # noqa: ANN001
+            stream_id = (data or {}).get("stream_id") if isinstance(data, dict) else None
+            task = self._subscriptions.pop((sid, stream_id), None)
+            if task:
+                task.cancel()
+            return {"ok": True, "stream_id": stream_id}
+
+        @sio.event
         async def disconnect(sid):  # noqa: ANN001
             task = self._observers.pop(sid, None)
             if task:
                 task.cancel()
+            for key in [k for k in self._subscriptions if k[0] == sid]:
+                self._subscriptions.pop(key).cancel()
             await self._cleaner.close(sid)
             log.info("client disconnected: %s", sid)
 
-    async def _observe(self, sid: str) -> None:
-        """Tail the client's dedicated stream and mirror every event to the socket."""
-        stream = self._settings.stream_key(sid)
+    async def _observe_stream(self, sid: str, stream_id: str) -> None:
+        """Tail `stream:<stream_id>` and mirror every event to socket `sid`.
+        Used for both the client's own stream (stream_id == sid) and explicit
+        subscriptions. Each event carries its source in `header.stream_id`, so the
+        client routes it to the right Workflow (by cid) or Subscription (by stream)."""
+        stream = self._settings.stream_key(stream_id)
         last_id = "0"
         poll_s = self._settings.actor_poll_ms / 1000.0
         try:
@@ -149,4 +206,4 @@ class Gateway:
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 - keep the gateway alive
-            log.warning("observer error for %s: %s", sid, exc)
+            log.warning("observer error for %s on %s: %s", sid, stream_id, exc)

@@ -126,6 +126,58 @@ export class Workflow {
   }
 }
 
+/**
+ * A live subscription to a stream — async-iterable over EVERY event published to
+ * it (observer semantics; events you did not produce). Unlike a Workflow (one
+ * cid, terminates), it spans all cids on the stream and runs until you
+ * `unsubscribe()` or the client disconnects.
+ *
+ *   const sub = await client.subscribe("some-stream-id");
+ *   for await (const ev of sub) console.log(ev.cid, ev.type, ev.data);
+ *   await sub.unsubscribe();
+ *
+ * Observer semantics — every subscriber sees every event; NOT consumer-group
+ * work distribution (that is a server-side concern, not available in the browser).
+ */
+export class Subscription {
+  constructor(client, streamId) {
+    this.client = client;
+    this.streamId = streamId;
+    this._queue = [];
+    this._waiters = [];
+    this._closed = false;
+  }
+  _feed(ev) {
+    this._push(ev);
+  }
+  _close() {
+    if (!this._closed) {
+      this._closed = true;
+      this._push(null); // sentinel
+    }
+  }
+  _push(item) {
+    const waiter = this._waiters.shift();
+    if (waiter) waiter(item);
+    else this._queue.push(item);
+  }
+  [Symbol.asyncIterator]() {
+    const take = (item) =>
+      item === null ? { value: undefined, done: true } : { value: item, done: false };
+    return {
+      next: () => {
+        if (this._queue.length) return Promise.resolve(take(this._queue.shift()));
+        if (this._closed) return Promise.resolve({ value: undefined, done: true });
+        return new Promise((resolve) => this._waiters.push((item) => resolve(take(item))));
+      },
+    };
+  }
+  /** Stop the subscription (server-side observer too) and end iteration. */
+  unsubscribe() {
+    return this.client.unsubscribe(this.streamId);
+  }
+}
+
 /** The connection + thin protocol core. */
 export class AgentBusClient {
   constructor(url, options = {}) {
@@ -133,6 +185,7 @@ export class AgentBusClient {
     this._options = options;
     this._socket = null;
     this._workflows = new Map();
+    this._subscriptions = new Map();
     this._orphans = new Map(); // events that raced ahead of start()
     this.streamId = null;
   }
@@ -153,6 +206,7 @@ export class AgentBusClient {
       this._socket.on("event", (env) => this._dispatch(env));
       this._socket.on("disconnect", () => {
         for (const wf of this._workflows.values()) wf._disconnected();
+        for (const sub of this._subscriptions.values()) sub._close();
       });
     });
   }
@@ -163,10 +217,13 @@ export class AgentBusClient {
 
   _dispatch(env) {
     const ev = new BusEvent(env);
+    // Route by source stream to a Subscription, and/or by cid to a Workflow.
+    const sub = this._subscriptions.get(ev.streamId);
+    if (sub) sub._feed(ev);
     const wf = this._workflows.get(ev.cid);
     if (wf) {
       wf._feed(ev);
-    } else {
+    } else if (!sub) {
       if (!this._orphans.has(ev.cid)) this._orphans.set(ev.cid, []);
       this._orphans.get(ev.cid).push(ev);
     }
@@ -191,6 +248,32 @@ export class AgentBusClient {
     this._orphans.delete(cid);
     for (const ev of buffered) wf._feed(ev);
     return wf;
+  }
+
+  /** Publish an event to ANY stream (general producer). Returns {cid, sid, entry_id}. */
+  async publish(streamId, eventType, data = {}, { cid = null } = {}) {
+    const payload = { stream_id: streamId, event_type: eventType, data };
+    if (cid) payload.cid = cid;
+    return this._call("publish", payload);
+  }
+
+  /** Subscribe to ANY stream — receive every event published to it as a
+   * Subscription you `for await` over. (Observer semantics; not a consumer group.) */
+  async subscribe(streamId) {
+    const sub = new Subscription(this, streamId);
+    this._subscriptions.set(streamId, sub); // register before the server emits
+    await this._call("subscribe", { stream_id: streamId });
+    return sub;
+  }
+
+  async unsubscribe(streamId) {
+    const sub = this._subscriptions.get(streamId);
+    this._subscriptions.delete(streamId);
+    try {
+      await this._call("unsubscribe", { stream_id: streamId });
+    } finally {
+      if (sub) sub._close();
+    }
   }
 
   // Low-level passthroughs (by cid).

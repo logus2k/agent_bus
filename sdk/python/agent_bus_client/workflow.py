@@ -122,3 +122,48 @@ class Workflow:
         if timeout is not None:
             return await asyncio.wait_for(_drain(), timeout)
         return await _drain()
+
+
+class Subscription:
+    """A live subscription to a stream — async-iterable over EVERY event published
+    to it (read-only observer; events you did not produce). Unlike a Workflow (one
+    cid, terminates), a Subscription spans all cids on the stream and runs until you
+    ``unsubscribe()`` or the client disconnects.
+
+        sub = await client.subscribe("some-stream-id")
+        async for ev in sub:
+            print(ev.cid, ev.type, ev.data)
+        await sub.unsubscribe()
+
+    Note: observer semantics — every subscriber sees every event. This is NOT
+    consumer-group work distribution (use the glide ``BusClient`` for that).
+    """
+
+    def __init__(self, client, stream_id: str):
+        self._client = client
+        self.stream_id = stream_id
+        self._queue: asyncio.Queue = asyncio.Queue()
+        self._closed = False
+
+    def _feed(self, event: Event) -> None:
+        self._queue.put_nowait(event)
+
+    def _close(self) -> None:
+        if not self._closed:
+            self._closed = True
+            self._queue.put_nowait(_SENTINEL)
+
+    def __aiter__(self) -> "Subscription":
+        return self
+
+    async def __anext__(self) -> Event:
+        if self._closed and self._queue.empty():
+            raise StopAsyncIteration
+        item = await self._queue.get()
+        if item is _SENTINEL:
+            raise StopAsyncIteration
+        return item
+
+    async def unsubscribe(self) -> None:
+        """Stop the subscription (server-side observer too) and end iteration."""
+        await self._client._unsubscribe(self.stream_id)

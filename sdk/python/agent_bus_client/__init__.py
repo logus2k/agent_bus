@@ -17,10 +17,30 @@ iterate their events without hand-rolling Socket.IO or cid-correlation::
 
 This wraps the *bus* protocol (envelopes + commands). It is unrelated to the
 agent_server SDK, which wraps the LLM brain.
+
+Two client surfaces:
+  * :class:`AgentBusClient` — Socket.IO **gateway** client (browser + server):
+    ``publish`` / ``subscribe`` / ``start`` (initiator + observer).
+  * ``agent_bus_client.bus.BusClient`` — glide **direct-Valkey** client (server
+    only): consumer groups (``read_group``/``ack``/``reclaim``) + ``publish``.
+    Import explicitly: ``from agent_bus_client.bus import BusClient`` (needs the
+    ``valkey-glide`` extra). Not imported here so the package loads without glide.
+
+The canonical :class:`EventEnvelope` is exported here for every participant to
+import instead of vendoring a copy.
 """
 
 from .client import AgentBusClient
-from .workflow import Event, Workflow
+from .envelope import EventEnvelope, EventType, new_event
+from .workflow import Event, Subscription, Workflow
 
-__version__ = "0.1.0"
-__all__ = ["AgentBusClient", "Workflow", "Event"]
+__version__ = "0.2.0"
+__all__ = [
+    "AgentBusClient",
+    "Workflow",
+    "Subscription",
+    "Event",
+    "EventEnvelope",
+    "EventType",
+    "new_event",
+]

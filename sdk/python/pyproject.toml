@@ -4,15 +4,25 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-bus-client"
-version = "0.1.0"
-description = "Python client SDK for the Agent Bus Socket.IO gateway"
+version = "0.2.0"
+description = "Python client SDK for the Agent Bus — Socket.IO gateway client + glide consumer/producer client"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
+    "pydantic>=2",
     "python-socketio[asyncio_client]>=5.11",
     "aiohttp>=3.9",
 ]
 
+[project.optional-dependencies]
+# Server-side consumer/producer client (BusClient): direct Valkey via glide.
+# glibc only (no musl/alpine wheels). `pip install agent-bus-client[bus]`.
+bus = ["valkey-glide>=2.4"]
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["agent_bus_client*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

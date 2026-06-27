@@ -30,7 +30,14 @@ What works today:
   is an optional runaway backstop (default 0 = unlimited).
 - **Reaper** crash-recovery via `XAUTOCLAIM` (reclaims dead consumers' PEL).
 - **Stream cleanup** on disconnect + idle-TTL safety net.
-- **Socket.IO gateway** mirroring a workflow's events live to the browser.
+- **Socket.IO gateway** — `request` / `publish` / `subscribe` / `terminate` / `status`;
+  mirrors stream events to clients.
+- **Client SDKs** ([sdk/](sdk/)) — two surfaces:
+  - **Gateway clients** (Python + JS/ES6): publish, **subscribe** to any stream, and
+    drive/observe workflows. Browser-capable.
+  - **glide `BusClient`** (Python, `sdk/python` `[bus]` extra): direct-Valkey
+    **consumer groups** (`read_group`/`ack`/`reclaim`) + `publish` for server-side
+    workers — the surface `agent_runtime` consumes. Exports the canonical `EventEnvelope`.
 
 ## Architecture at a glance
 
