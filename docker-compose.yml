@@ -1,0 +1,28 @@
+services:
+  valkey-bus:
+    image: valkey/valkey:9.1.0-alpine3.23
+    container_name: valkey-bus
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: >
+      valkey-server 
+      --appendonly yes 
+      --appendfsync everysec 
+      --protected-mode no
+    volumes:
+      - valkey_data:/data
+    healthcheck:
+      # Ensures the bus is fully initialized before agents start
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  valkey_data:
+    driver: local
+
+networks:
+  logus2k_network:
+    external: true
